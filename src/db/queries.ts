@@ -142,6 +142,17 @@ export function deleteOldAlerts(db: Database, days: number): void {
   db.run("DELETE FROM alert_history WHERE sent_at < datetime('now', ?)", [`-${days} days`]);
 }
 
+/**
+ * Get the previous OI rank (second-latest snapshot) for a symbol.
+ * Skips the most recent snapshot and returns the one before it.
+ */
+export function getPreviousOiRank(db: Database, symbol: string): OiSnapshotRow | null {
+  const rows = db
+    .query("SELECT * FROM oi_snapshots WHERE symbol = ? ORDER BY ts DESC LIMIT 2")
+    .all(symbol) as OiSnapshotRow[];
+  return rows.length >= 2 ? rows[1]! : null;
+}
+
 // --- Utility ---
 
 export function getAllSymbolsWithOi(db: Database, ts: string): ReadonlyArray<string> {

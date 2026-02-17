@@ -23,4 +23,5 @@ export type DetectorContext = {
   readonly cooldownMin: number;
   readonly minAbsFr: number;
   readonly maxAlertsPerTick: number;
+  readonly pollIntervalMs: number;
 };

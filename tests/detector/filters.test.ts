@@ -6,6 +6,9 @@ import {
   filterMaxRank,
   filterCooldown,
   filterFrBacking,
+  countFrBackingExchanges,
+  boostSeverity,
+  applyFilters,
 } from "../../src/detector/filters.ts";
 import type { Alert } from "../../src/detector/types.ts";
 
@@ -66,8 +69,6 @@ describe("filterCooldown", () => {
       severity: "medium",
     });
 
-    // Alert was just sent (sent_at defaults to now)
-    // Using a current time very close to now
     const now = new Date();
     const result = filterCooldown(
       db,
@@ -79,7 +80,6 @@ describe("filterCooldown", () => {
   });
 
   test("passes when outside cooldown period", () => {
-    // Insert an old alert
     db.run(
       "INSERT INTO alert_history (symbol, rule, severity, sent_at) VALUES (?, ?, ?, ?)",
       ["BTCUSDT", "rank-delta", "medium", "2024-01-01T00:00:00.000Z"],
@@ -92,6 +92,38 @@ describe("filterCooldown", () => {
       "2024-01-01T03:00:00.000Z",
     );
     expect(result).toBe(true);
+  });
+
+  test("high severity gets halved cooldown", () => {
+    // Alert sent 70 min ago. Normal cooldown is 120 min (should fail),
+    // but high severity gets 60 min cooldown (should pass).
+    db.run(
+      "INSERT INTO alert_history (symbol, rule, severity, sent_at) VALUES (?, ?, ?, ?)",
+      ["BTCUSDT", "rank-delta", "high", "2024-01-01T00:00:00.000Z"],
+    );
+
+    const result = filterCooldown(
+      db,
+      makeAlert({ severity: "high" }),
+      120,
+      "2024-01-01T01:10:00.000Z", // 70 min later
+    );
+    expect(result).toBe(true);
+  });
+
+  test("medium severity uses full cooldown", () => {
+    db.run(
+      "INSERT INTO alert_history (symbol, rule, severity, sent_at) VALUES (?, ?, ?, ?)",
+      ["BTCUSDT", "rank-delta", "medium", "2024-01-01T00:00:00.000Z"],
+    );
+
+    const result = filterCooldown(
+      db,
+      makeAlert({ severity: "medium" }),
+      120,
+      "2024-01-01T01:10:00.000Z", // 70 min later — within 120 min
+    );
+    expect(result).toBe(false);
   });
 });
 
@@ -128,5 +160,124 @@ describe("filterFrBacking", () => {
 
   test("fails when no FR data exists", () => {
     expect(filterFrBacking(db, makeAlert(), 5)).toBe(false);
+  });
+});
+
+describe("countFrBackingExchanges", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  test("counts exchanges meeting threshold", () => {
+    const ts = "2024-01-01T00:00:00.000Z";
+    insertFrSnapshots(db, [
+      { ts, symbol: "BTCUSDT", exchange: "Binance", rate: 10.5 },
+      { ts, symbol: "BTCUSDT", exchange: "Bybit", rate: 8.0 },
+      { ts, symbol: "BTCUSDT", exchange: "OKX", rate: 3.0 },
+      { ts, symbol: "BTCUSDT", exchange: "Hyperliquid", rate: -7.0 },
+    ]);
+
+    expect(countFrBackingExchanges(db, "BTCUSDT", 5)).toBe(3);
+  });
+
+  test("returns 0 when no exchanges meet threshold", () => {
+    const ts = "2024-01-01T00:00:00.000Z";
+    insertFrSnapshots(db, [
+      { ts, symbol: "BTCUSDT", exchange: "Binance", rate: 2.0 },
+    ]);
+
+    expect(countFrBackingExchanges(db, "BTCUSDT", 5)).toBe(0);
+  });
+});
+
+describe("boostSeverity", () => {
+  test("no boost with fewer than 3 exchanges", () => {
+    expect(boostSeverity("low", 2)).toBe("low");
+    expect(boostSeverity("medium", 1)).toBe("medium");
+    expect(boostSeverity("high", 0)).toBe("high");
+  });
+
+  test("boosts low to medium with 3+ exchanges", () => {
+    expect(boostSeverity("low", 3)).toBe("medium");
+    expect(boostSeverity("low", 5)).toBe("medium");
+  });
+
+  test("boosts medium to high with 3+ exchanges", () => {
+    expect(boostSeverity("medium", 3)).toBe("high");
+    expect(boostSeverity("medium", 4)).toBe("high");
+  });
+
+  test("high stays high even with 3+ exchanges", () => {
+    expect(boostSeverity("high", 3)).toBe("high");
+    expect(boostSeverity("high", 10)).toBe("high");
+  });
+});
+
+describe("applyFilters (integration)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  test("returns alert when all filters pass", () => {
+    const ts = "2024-01-01T00:00:00.000Z";
+    insertFrSnapshots(db, [
+      { ts, symbol: "BTCUSDT", exchange: "Binance", rate: 10.0 },
+    ]);
+
+    const result = applyFilters({
+      db,
+      alert: makeAlert({ currentRank: 50 }),
+      maxRank: 300,
+      cooldownMin: 120,
+      minAbsFr: 5,
+      currentTs: ts,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.symbol).toBe("BTCUSDT");
+  });
+
+  test("returns null when maxRank filter fails", () => {
+    const ts = "2024-01-01T00:00:00.000Z";
+    insertFrSnapshots(db, [
+      { ts, symbol: "BTCUSDT", exchange: "Binance", rate: 10.0 },
+    ]);
+
+    const result = applyFilters({
+      db,
+      alert: makeAlert({ currentRank: 400 }),
+      maxRank: 300,
+      cooldownMin: 120,
+      minAbsFr: 5,
+      currentTs: ts,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("boosts severity when 3+ FR exchanges back it", () => {
+    const ts = "2024-01-01T00:00:00.000Z";
+    insertFrSnapshots(db, [
+      { ts, symbol: "BTCUSDT", exchange: "Binance", rate: 10.0 },
+      { ts, symbol: "BTCUSDT", exchange: "Bybit", rate: 8.0 },
+      { ts, symbol: "BTCUSDT", exchange: "OKX", rate: 7.0 },
+      { ts, symbol: "BTCUSDT", exchange: "Hyperliquid", rate: 6.0 },
+    ]);
+
+    const result = applyFilters({
+      db,
+      alert: makeAlert({ currentRank: 50, severity: "low" }),
+      maxRank: 300,
+      cooldownMin: 120,
+      minAbsFr: 5,
+      currentTs: ts,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.severity).toBe("medium"); // boosted from low
   });
 });
