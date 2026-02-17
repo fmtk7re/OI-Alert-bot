@@ -11,13 +11,24 @@ export async function dispatchAlerts(opts: {
   readonly webhookUrl: string;
   readonly ts: string;
   readonly logger: pino.Logger;
+  readonly sendToChannel?: (alert: EnrichedAlert, ts: string) => Promise<boolean>;
 }): Promise<number> {
-  const { db, alerts, webhookUrl, ts, logger } = opts;
+  const { db, alerts, webhookUrl, ts, logger, sendToChannel } = opts;
   let sentCount = 0;
 
   for (const alert of alerts) {
-    const embed = buildEmbed(alert, ts);
-    const ok = await sendWebhook(webhookUrl, { embeds: [embed] }, logger);
+    let ok = false;
+
+    // Try discord.js channel first if available, fall back to webhook
+    if (sendToChannel) {
+      ok = await sendToChannel(alert, ts);
+    }
+
+    if (!ok) {
+      const embed = buildEmbed(alert, ts);
+      ok = await sendWebhook(webhookUrl, { embeds: [embed] }, logger);
+    }
+
     if (ok) {
       insertAlertHistory(db, {
         symbol: alert.symbol,

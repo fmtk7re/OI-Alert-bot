@@ -11,6 +11,10 @@ import { dispatchAlerts } from "./notifier/dispatcher.ts";
 import { sendAdminNotification } from "./notifier/discord.ts";
 import { createLogger } from "./lib/logger.ts";
 import { createScheduler } from "./lib/scheduler.ts";
+import { checkAndSendSummary } from "./lib/summary.ts";
+import { createBot, type BotState } from "./bot/client.ts";
+import { createWebServer } from "./web/server.ts";
+import type { EnrichedAlert } from "./enricher/funding.ts";
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
@@ -23,24 +27,67 @@ let tickCount = 0;
 let totalAlertsSent = 0;
 let consecutiveFailures = 0;
 
+// Bot channel sender (set after bot connects)
+let botSendToChannel: ((alert: EnrichedAlert, ts: string) => Promise<boolean>) | undefined;
+
+function getState(): BotState {
+  return { startedAt, tickCount, totalAlertsSent };
+}
+
 // Startup health check
 logger.info(
   {
-    version: "0.2.0",
+    version: "0.3.0",
     pollIntervalMs: config.POLL_INTERVAL_MS,
     maxRank: config.MAX_RANK,
     rules: ["rank-delta", "new-entry", "ema-cross"],
     dbPath: config.DB_PATH,
+    webEnabled: config.WEB_ENABLED,
+    botEnabled: !!config.DISCORD_BOT_TOKEN,
   },
   "OI Alert Bot starting",
 );
 
 void sendAdminNotification(
   config.DISCORD_ADMIN_WEBHOOK_URL,
-  `Bot started at ${startedAt}\nRules: rank-delta, new-entry, ema-cross\nPoll: ${config.POLL_INTERVAL_MS / 1000}s`,
+  `Bot started at ${startedAt}\nVersion: 0.3.0\nRules: rank-delta, new-entry, ema-cross\nPoll: ${config.POLL_INTERVAL_MS / 1000}s`,
   logger,
 );
 
+// --- Discord Bot (optional) ---
+if (config.DISCORD_BOT_TOKEN && config.DISCORD_GUILD_ID && config.DISCORD_ALERT_CHANNEL_ID) {
+  createBot({
+    token: config.DISCORD_BOT_TOKEN,
+    guildId: config.DISCORD_GUILD_ID,
+    alertChannelId: config.DISCORD_ALERT_CHANNEL_ID,
+    db,
+    logger,
+    getState,
+  })
+    .then(({ sendAlertToChannel }) => {
+      botSendToChannel = sendAlertToChannel;
+      logger.info("Discord bot connected, channel alerts enabled");
+    })
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ error: message }, "Discord bot failed to start, falling back to webhooks");
+    });
+} else {
+  logger.info("Discord bot not configured, using webhook-only mode");
+}
+
+// --- Web Server (optional) ---
+let webServer: { stop: () => void } | undefined;
+if (config.WEB_ENABLED) {
+  webServer = createWebServer({
+    port: config.WEB_PORT,
+    db,
+    logger,
+    getStats: () => ({ tickCount, totalAlertsSent, startedAt }),
+  });
+}
+
+// --- Main tick ---
 async function tick(): Promise<void> {
   const tickStart = Date.now();
   const ts = new Date().toISOString();
@@ -99,10 +146,20 @@ async function tick(): Promise<void> {
       webhookUrl: config.DISCORD_WEBHOOK_URL,
       ts,
       logger,
+      sendToChannel: botSendToChannel,
     });
     totalAlertsSent += sent;
     logger.info({ sent, total: enriched.length }, "alerts dispatched");
   }
+
+  // 6. Check summary delivery
+  await checkAndSendSummary({
+    db,
+    webhookUrl: config.DISCORD_WEBHOOK_URL,
+    dailyHourUtc: config.SUMMARY_DAILY_HOUR_UTC,
+    weeklyDay: config.SUMMARY_WEEKLY_DAY,
+    logger,
+  });
 
   const tickDurationMs = Date.now() - tickStart;
   logger.info(
@@ -166,6 +223,7 @@ function shutdown(): void {
   scheduler.stop();
   clearInterval(cleanupInterval);
   clearInterval(healthCheckInterval);
+  webServer?.stop();
   db.close();
   process.exit(0);
 }

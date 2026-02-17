@@ -1,9 +1,11 @@
 import type { Database } from "bun:sqlite";
 import type pino from "pino";
 import { up as init } from "./001_init.ts";
+import { up as watchlists } from "./002_watchlists.ts";
 
 const migrations: ReadonlyArray<{ readonly name: string; readonly up: (db: Database) => void }> = [
   { name: "001_init", up: init },
+  { name: "002_watchlists", up: watchlists },
 ];
 
 export function runMigrations(db: Database, logger: pino.Logger): void {
