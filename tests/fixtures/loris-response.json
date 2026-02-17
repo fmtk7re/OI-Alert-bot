@@ -1,0 +1,39 @@
+{
+  "oi_rankings": {
+    "BTCUSDT": "1",
+    "ETHUSDT": "2",
+    "SOLUSDT": "15",
+    "DOGEUSDT": "50",
+    "ARBUSDT": "120",
+    "XRPUSDT": "200",
+    "SHIBUSDT": "500+"
+  },
+  "funding_rates": {
+    "Binance": {
+      "BTCUSDT": 10.5,
+      "ETHUSDT": 8.2,
+      "SOLUSDT": 15.3,
+      "DOGEUSDT": -5.1,
+      "ARBUSDT": 7.8,
+      "XRPUSDT": 3.2
+    },
+    "Bybit": {
+      "BTCUSDT": 11.0,
+      "ETHUSDT": 7.9,
+      "SOLUSDT": 14.8,
+      "DOGEUSDT": -4.5,
+      "ARBUSDT": 6.5
+    },
+    "OKX": {
+      "BTCUSDT": 10.2,
+      "ETHUSDT": 8.5,
+      "SOLUSDT": 16.1,
+      "DOGEUSDT": -6.0
+    },
+    "Hyperliquid": {
+      "BTCUSDT": 9.8,
+      "ETHUSDT": 7.5,
+      "SOLUSDT": 13.2
+    }
+  }
+}

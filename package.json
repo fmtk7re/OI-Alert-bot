@@ -1,0 +1,24 @@
+{
+  "name": "oi-alert-bot",
+  "module": "src/main.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun run --watch src/main.ts",
+    "test": "bun test",
+    "check": "bunx @biomejs/biome check src/ tests/",
+    "format": "bunx @biomejs/biome format --write src/ tests/"
+  },
+  "dependencies": {
+    "pino": "^9.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
