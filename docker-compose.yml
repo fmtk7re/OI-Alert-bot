@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "${WEB_PORT:-3000}:3000"
     volumes:
       - bot-data:/app/data
     logging:

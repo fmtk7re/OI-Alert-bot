@@ -12,6 +12,9 @@ const configSchema = z.object({
   MIN_ABS_FR: z.coerce.number().min(0).default(5),
   DISCORD_WEBHOOK_URL: z.string().url(),
   DISCORD_ADMIN_WEBHOOK_URL: z.string().url().optional(),
+  DISCORD_BOT_TOKEN: z.string().min(1).optional(),
+  DISCORD_GUILD_ID: z.string().min(1).optional(),
+  DISCORD_ALERT_CHANNEL_ID: z.string().min(1).optional(),
   MAX_ALERTS_PER_TICK: z.coerce.number().int().min(1).default(10),
   OI_RETENTION_DAYS: z.coerce.number().int().min(1).default(7),
   FR_RETENTION_DAYS: z.coerce.number().int().min(1).default(3),
@@ -20,6 +23,13 @@ const configSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
   DB_PATH: z.string().default("data/oi-alert.db"),
+  WEB_PORT: z.coerce.number().int().min(1).default(3000),
+  WEB_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  SUMMARY_DAILY_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(0),
+  SUMMARY_WEEKLY_DAY: z.coerce.number().int().min(0).max(6).default(1),
 });
 
 export type Config = Readonly<z.infer<typeof configSchema>>;
