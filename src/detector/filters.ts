@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getLastAlertTime, getLatestFrForSymbol } from "../db/queries.ts";
-import type { Alert } from "./types.ts";
+import type { Alert, Severity } from "./types.ts";
 
 /**
  * Filter 1: maxRank — only alert if current rank <= maxRank
@@ -10,7 +10,8 @@ export function filterMaxRank(alert: Alert, maxRank: number): boolean {
 }
 
 /**
- * Filter 2: cooldown — suppress if same symbol+rule alerted within cooldownMin
+ * Filter 2: cooldown — suppress if same symbol+rule alerted within cooldownMin.
+ * High severity alerts get halved cooldown to allow faster re-notification.
  */
 export function filterCooldown(
   db: Database,
@@ -21,13 +22,15 @@ export function filterCooldown(
   const lastSent = getLastAlertTime(db, alert.symbol, alert.rule);
   if (!lastSent) return true;
 
+  const effectiveCooldown = alert.severity === "high" ? Math.floor(cooldownMin / 2) : cooldownMin;
   const lastTime = new Date(lastSent).getTime();
   const now = new Date(currentTs).getTime();
-  return now - lastTime >= cooldownMin * 60_000;
+  return now - lastTime >= effectiveCooldown * 60_000;
 }
 
 /**
- * Filter 3: FR backing — at least one exchange has |FR| >= minAbsFr
+ * Filter 3: FR backing — at least one exchange has |FR| >= minAbsFr.
+ * Returns the count of exchanges meeting the threshold for severity boosting.
  */
 export function filterFrBacking(db: Database, alert: Alert, minAbsFr: number): boolean {
   const rates = getLatestFrForSymbol(db, alert.symbol);
@@ -35,7 +38,32 @@ export function filterFrBacking(db: Database, alert: Alert, minAbsFr: number): b
 }
 
 /**
- * Apply all filters in order. Returns true if alert passes all filters.
+ * Count how many exchanges have |FR| >= threshold.
+ * Used for severity boosting — more exchanges backing = stronger signal.
+ */
+export function countFrBackingExchanges(
+  db: Database,
+  symbol: string,
+  minAbsFr: number,
+): number {
+  const rates = getLatestFrForSymbol(db, symbol);
+  return rates.filter((r) => Math.abs(r.rate) >= minAbsFr).length;
+}
+
+/**
+ * Boost severity if multiple exchanges confirm FR backing.
+ * - 3+ exchanges with |FR| >= threshold: low→medium, medium→high
+ */
+export function boostSeverity(baseSeverity: Severity, frBackingCount: number): Severity {
+  if (frBackingCount < 3) return baseSeverity;
+  if (baseSeverity === "low") return "medium";
+  if (baseSeverity === "medium") return "high";
+  return baseSeverity;
+}
+
+/**
+ * Apply all filters in order. Returns the alert with potentially boosted severity,
+ * or null if filtered out.
  */
 export function applyFilters(opts: {
   readonly db: Database;
@@ -44,12 +72,20 @@ export function applyFilters(opts: {
   readonly cooldownMin: number;
   readonly minAbsFr: number;
   readonly currentTs: string;
-}): boolean {
+}): Alert | null {
   const { db, alert, maxRank, cooldownMin, minAbsFr, currentTs } = opts;
 
-  if (!filterMaxRank(alert, maxRank)) return false;
-  if (!filterCooldown(db, alert, cooldownMin, currentTs)) return false;
-  if (!filterFrBacking(db, alert, minAbsFr)) return false;
+  if (!filterMaxRank(alert, maxRank)) return null;
+  if (!filterCooldown(db, alert, cooldownMin, currentTs)) return null;
+  if (!filterFrBacking(db, alert, minAbsFr)) return null;
 
-  return true;
+  // Severity boost based on FR exchange consensus
+  const frCount = countFrBackingExchanges(db, alert.symbol, minAbsFr);
+  const boostedSeverity = boostSeverity(alert.severity, frCount);
+
+  if (boostedSeverity !== alert.severity) {
+    return { ...alert, severity: boostedSeverity };
+  }
+
+  return alert;
 }
