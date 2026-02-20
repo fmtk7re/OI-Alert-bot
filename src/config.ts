@@ -3,7 +3,7 @@ import { z } from "zod";
 const configSchema = z.object({
   LORIS_API_URL: z.string().url().default("https://api.loris.tools/funding"),
   POLL_INTERVAL_MS: z.coerce.number().int().min(10_000).default(60_000),
-  RANK_DELTA_WINDOW_MIN: z.coerce.number().int().min(1).default(30),
+  RANK_DELTA_WINDOW_MIN: z.coerce.number().int().min(1).default(10),
   RANK_DELTA_THRESHOLD: z.coerce.number().int().min(1).default(30),
   EMA_SHORT_PERIOD: z.coerce.number().int().min(1).default(5),
   EMA_LONG_PERIOD: z.coerce.number().int().min(2).default(20),
