@@ -1,10 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { up } from "../../src/db/migrations/001_init.ts";
+import { up as alertCurrentRank } from "../../src/db/migrations/003_alert_current_rank.ts";
 import { insertAlertHistory, insertFrSnapshots } from "../../src/db/queries.ts";
 import {
   filterMaxRank,
   filterCooldown,
+  filterDuplicateContent,
   filterFrBacking,
   countFrBackingExchanges,
   boostSeverity,
@@ -15,6 +17,7 @@ import type { Alert } from "../../src/detector/types.ts";
 function createTestDb(): Database {
   const db = new Database(":memory:");
   up(db);
+  alertCurrentRank(db);
   return db;
 }
 
@@ -124,6 +127,61 @@ describe("filterCooldown", () => {
       "2024-01-01T01:10:00.000Z", // 70 min later — within 120 min
     );
     expect(result).toBe(false);
+  });
+});
+
+describe("filterDuplicateContent", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  test("passes when no previous alert exists", () => {
+    expect(filterDuplicateContent(db, makeAlert({ currentRank: 50 }))).toBe(true);
+  });
+
+  test("suppresses when currentRank matches last alert", () => {
+    insertAlertHistory(db, {
+      symbol: "BTCUSDT",
+      rule: "rank-delta",
+      severity: "medium",
+      currentRank: 50,
+    });
+
+    expect(filterDuplicateContent(db, makeAlert({ currentRank: 50 }))).toBe(false);
+  });
+
+  test("passes when currentRank differs from last alert", () => {
+    insertAlertHistory(db, {
+      symbol: "BTCUSDT",
+      rule: "rank-delta",
+      severity: "medium",
+      currentRank: 50,
+    });
+
+    expect(filterDuplicateContent(db, makeAlert({ currentRank: 40 }))).toBe(true);
+  });
+
+  test("passes when last alert has no stored rank (legacy row)", () => {
+    db.run(
+      "INSERT INTO alert_history (symbol, rule, severity, sent_at) VALUES (?, ?, ?, ?)",
+      ["BTCUSDT", "rank-delta", "medium", "2024-01-01T00:00:00.000Z"],
+    );
+
+    expect(filterDuplicateContent(db, makeAlert({ currentRank: 50 }))).toBe(true);
+  });
+
+  test("only compares within same symbol and rule", () => {
+    insertAlertHistory(db, {
+      symbol: "ETHUSDT",
+      rule: "rank-delta",
+      severity: "medium",
+      currentRank: 50,
+    });
+
+    // Different symbol — should not be suppressed
+    expect(filterDuplicateContent(db, makeAlert({ symbol: "BTCUSDT", currentRank: 50 }))).toBe(true);
   });
 });
 
