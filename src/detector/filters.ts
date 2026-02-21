@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getLastAlertTime, getLatestFrForSymbol } from "../db/queries.ts";
+import { getLastAlertTime, getLastAlertCurrentRank, getLatestFrForSymbol } from "../db/queries.ts";
 import type { Alert, Severity } from "./types.ts";
 
 /**
@@ -35,6 +35,19 @@ export function filterCooldown(
 export function filterFrBacking(db: Database, alert: Alert, minAbsFr: number): boolean {
   const rates = getLatestFrForSymbol(db, alert.symbol);
   return rates.some((r) => Math.abs(r.rate) >= minAbsFr);
+}
+
+/**
+ * Filter 4: duplicate content — suppress if current rank is identical to the last alert.
+ * Prevents re-notification when the OI position hasn't moved since the previous alert.
+ */
+export function filterDuplicateContent(
+  db: Database,
+  alert: Alert,
+): boolean {
+  const lastRank = getLastAlertCurrentRank(db, alert.symbol, alert.rule);
+  if (lastRank === null) return true;
+  return alert.currentRank !== lastRank;
 }
 
 /**
@@ -77,6 +90,7 @@ export function applyFilters(opts: {
 
   if (!filterMaxRank(alert, maxRank)) return null;
   if (!filterCooldown(db, alert, cooldownMin, currentTs)) return null;
+  if (!filterDuplicateContent(db, alert)) return null;
   if (!filterFrBacking(db, alert, minAbsFr)) return null;
 
   // Severity boost based on FR exchange consensus

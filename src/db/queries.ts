@@ -109,13 +109,32 @@ export type AlertHistoryRow = {
 
 export function insertAlertHistory(
   db: Database,
-  row: { readonly symbol: string; readonly rule: string; readonly severity: string },
+  row: {
+    readonly symbol: string;
+    readonly rule: string;
+    readonly severity: string;
+    readonly currentRank?: number;
+  },
 ): void {
-  db.run("INSERT INTO alert_history (symbol, rule, severity) VALUES (?, ?, ?)", [
+  db.run("INSERT INTO alert_history (symbol, rule, severity, current_rank) VALUES (?, ?, ?, ?)", [
     row.symbol,
     row.rule,
     row.severity,
+    row.currentRank ?? null,
   ]);
+}
+
+export function getLastAlertCurrentRank(
+  db: Database,
+  symbol: string,
+  rule: string,
+): number | null {
+  const row = db
+    .query(
+      "SELECT current_rank FROM alert_history WHERE symbol = ? AND rule = ? ORDER BY sent_at DESC LIMIT 1",
+    )
+    .get(symbol, rule) as { current_rank: number | null } | null;
+  return row?.current_rank ?? null;
 }
 
 export function getLastAlertTime(db: Database, symbol: string, rule: string): string | null {

@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { up as init } from "../../src/db/migrations/001_init.ts";
 import { up as watchlists } from "../../src/db/migrations/002_watchlists.ts";
+import { up as alertCurrentRank } from "../../src/db/migrations/003_alert_current_rank.ts";
 import {
   addWatchlistSymbol,
   removeWatchlistSymbol,
@@ -25,6 +26,7 @@ function createTestDb(): Database {
   const db = new Database(":memory:");
   init(db);
   watchlists(db);
+  alertCurrentRank(db);
   return db;
 }
 

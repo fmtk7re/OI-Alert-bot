@@ -34,6 +34,7 @@ export async function dispatchAlerts(opts: {
         symbol: alert.symbol,
         rule: alert.rule,
         severity: alert.severity,
+        currentRank: alert.currentRank,
       });
       sentCount++;
       logger.info({ symbol: alert.symbol, rule: alert.rule }, "alert sent");
