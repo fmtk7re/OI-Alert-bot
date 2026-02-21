@@ -367,6 +367,29 @@ export function getTopAlertedSymbols(
     .all(sinceTs, limit) as Array<{ symbol: string; count: number }>;
 }
 
+// --- Runtime Config ---
+
+export function getRuntimeConfigValue(db: Database, key: string): string | null {
+  const row = db
+    .query("SELECT value FROM runtime_config WHERE key = ?")
+    .get(key) as { value: string } | null;
+  return row?.value ?? null;
+}
+
+export function getAllRuntimeConfig(db: Database): ReadonlyArray<{ key: string; value: string; updated_at: string }> {
+  return db
+    .query("SELECT key, value, updated_at FROM runtime_config ORDER BY key")
+    .all() as Array<{ key: string; value: string; updated_at: string }>;
+}
+
+export function upsertRuntimeConfig(db: Database, key: string, value: string): void {
+  db.run(
+    `INSERT INTO runtime_config (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    [key, value],
+  );
+}
+
 // --- Utility ---
 
 export function getAllSymbolsWithOi(db: Database, ts: string): ReadonlyArray<string> {
