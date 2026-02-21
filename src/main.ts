@@ -13,6 +13,7 @@ import { createLogger } from "./lib/logger.ts";
 import { createScheduler } from "./lib/scheduler.ts";
 import { checkAndSendSummary } from "./lib/summary.ts";
 import { createBot, type BotState } from "./bot/client.ts";
+import { getEffectiveDetectorConfig } from "./lib/runtime-config.ts";
 import { createWebServer } from "./web/server.ts";
 import type { EnrichedAlert } from "./enricher/funding.ts";
 
@@ -61,6 +62,7 @@ if (config.DISCORD_BOT_TOKEN && config.DISCORD_GUILD_ID && config.DISCORD_ALERT_
     guildId: config.DISCORD_GUILD_ID,
     alertChannelId: config.DISCORD_ALERT_CHANNEL_ID,
     db,
+    envConfig: config,
     logger,
     getState,
   })
@@ -116,19 +118,20 @@ async function tick(): Promise<void> {
   // 2. Store
   storeSnapshot(db, data, ts, logger);
 
-  // 3. Detect
+  // 3. Detect (runtime overrides from /threshold are applied here)
   const symbols = getAllSymbolsWithOi(db, ts);
+  const rt = getEffectiveDetectorConfig(db, config);
   const ctx: DetectorContext = {
     ts,
     symbols,
-    rankDeltaWindowMin: config.RANK_DELTA_WINDOW_MIN,
-    rankDeltaThreshold: config.RANK_DELTA_THRESHOLD,
-    emaShortPeriod: config.EMA_SHORT_PERIOD,
-    emaLongPeriod: config.EMA_LONG_PERIOD,
+    rankDeltaWindowMin: rt.rankDeltaWindowMin,
+    rankDeltaThreshold: rt.rankDeltaThreshold,
+    emaShortPeriod: rt.emaShortPeriod,
+    emaLongPeriod: rt.emaLongPeriod,
     maxRank: config.MAX_RANK,
     cooldownMin: config.COOLDOWN_MIN,
-    minAbsFr: config.MIN_ABS_FR,
-    maxAlertsPerTick: config.MAX_ALERTS_PER_TICK,
+    minAbsFr: rt.minAbsFr,
+    maxAlertsPerTick: rt.maxAlertsPerTick,
     pollIntervalMs: config.POLL_INTERVAL_MS,
   };
 

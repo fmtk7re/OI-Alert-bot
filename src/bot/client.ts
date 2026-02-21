@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import type { Database } from "bun:sqlite";
 import type pino from "pino";
+import type { Config } from "../config.ts";
 import { commands, handleCommand } from "./commands.ts";
 import type { EnrichedAlert } from "../enricher/funding.ts";
 import { buildEmbed } from "../enricher/message.ts";
@@ -24,13 +25,14 @@ export async function createBot(opts: {
   readonly guildId: string;
   readonly alertChannelId: string;
   readonly db: Database;
+  readonly envConfig: Config;
   readonly logger: pino.Logger;
   readonly getState: () => BotState;
 }): Promise<{
   client: Client;
   sendAlertToChannel: (alert: EnrichedAlert, ts: string) => Promise<boolean>;
 }> {
-  const { token, guildId, alertChannelId, db, logger, getState } = opts;
+  const { token, guildId, alertChannelId, db, envConfig, logger, getState } = opts;
 
   const client = new Client({
     intents: [GatewayIntentBits.Guilds],
@@ -68,6 +70,7 @@ export async function createBot(opts: {
       await handleCommand(
         interaction as ChatInputCommandInteraction,
         db,
+        envConfig,
         state.startedAt,
         state.tickCount,
         state.totalAlertsSent,
